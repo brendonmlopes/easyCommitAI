@@ -1,9 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>   // mkstemp, close, unlink
+#include <unistd.h>
 #include <errno.h>
-#include <sys/wait.h> // WIFEXITED, WEXITSTATUS
+#include <sys/wait.h>
 
 // --- Utility: read command output into malloc'd buffer ---
 static char* read_cmd(const char *cmd) {
@@ -36,8 +36,18 @@ static char* read_cmd(const char *cmd) {
     return buf;
 }
 
+void runOllamaServer() {
+    // Start Ollama server in the background
+    if (system("ollama serve > /dev/null 2>&1 &") == -1) {
+	fprintf(stderr, "Failed to start Ollama server: %s\n", strerror(errno));
+	exit(1);
+    }
+}
+
 int main(void) {
-    // 1) Get the staged diff (plain text)
+    // 0) Ensure Ollama server is running
+    runOllamaServer();
+    // 1) Get the staged diff
     char *diff = read_cmd("git diff --staged --no-color");
     if (!diff) {
         fprintf(stderr, "Error: failed to read staged diff: %s\n", strerror(errno));
@@ -65,7 +75,7 @@ int main(void) {
         return 1;
     }
 
-    // 3) Strict prompt so the model prints ONLY the commit message
+    // 3) Prompt
     fputs(
         "You are a Git commit message generator.\n"
         "\n"
@@ -86,9 +96,9 @@ int main(void) {
     fclose(tf);
     free(diff);
 
-    // 4) Run Ollama directly — output goes straight to the terminal
+    // 4) Run Ollama
     char cmd[512];
-    snprintf(cmd, sizeof(cmd), "ollama run gemma3:270m < %s", tmpl);
+    snprintf(cmd, sizeof(cmd), "ollama run llama3 < %s", tmpl);
 
     int rc = system(cmd);
 
@@ -99,6 +109,7 @@ int main(void) {
         fprintf(stderr, "system() failed: %s\n", strerror(errno));
         return 1;
     }
+    system("pkill -f ollama");
     return WIFEXITED(rc) ? WEXITSTATUS(rc) : 1;
 }
 
